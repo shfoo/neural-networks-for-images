@@ -1,0 +1,1 @@
+This folder should contain the MNIST training and test images/ labels downloaded from 'yann.lecun.com/exdb/mnist/'
