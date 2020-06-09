@@ -11,7 +11,7 @@ class GAN(object):
         self.discriminator = discriminator()
         self.generator = generator(noise_dim=noise_dim)
 
-    def train(self, X, learn_rate=0.001, n_epochs=5, batch_sz=100,
+    def fit(self, X, learn_rate=0.001, n_epochs=5, batch_sz=100,
                 verbose=False):
         """
         Performs parameter updates to generator and discriminator networks
@@ -74,7 +74,7 @@ class GAN(object):
 
         return train_stats
 
-    def test(self, N=16):
+    def predict(self, N=16):
         """
         Generate images from noise input at test time
         """

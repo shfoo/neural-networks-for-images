@@ -60,7 +60,7 @@ class TwoLayerNet(object):
 
         return loss, grads
 
-    def train(self, X, y, learn_rate=0.1, n_epochs=10, batch_sz=100,
+    def fit(self, X, y, learn_rate=0.1, n_epochs=10, batch_sz=100,
                 verbose=False):
         """
         Inputs:
@@ -94,7 +94,7 @@ class TwoLayerNet(object):
 
         return train_stats
 
-    def test(self, X):
+    def predict(self, X):
         """
         Predicts class labels
 
@@ -143,7 +143,7 @@ class CNN(torch.nn.Module):
 
         return scores
 
-    def train(self, X, y, learn_rate=0.001, n_epochs=10, batch_sz=100,
+    def fit(self, X, y, learn_rate=0.001, n_epochs=10, batch_sz=100,
                 verbose=True):
         """
         Inputs:
@@ -202,7 +202,7 @@ class LSTM(nn.Module):
 
         return scores
 
-    def train(self, X, y, learn_rate=0.01, n_epochs=1, batch_sz=100,
+    def fit(self, X, y, learn_rate=0.01, n_epochs=1, batch_sz=100,
                 verbose=True):
         N = X.size()[0]
         X = torch.autograd.Variable(X)
