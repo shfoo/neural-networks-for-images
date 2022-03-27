@@ -1,196 +1,152 @@
-import numpy as np
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+@author: https://github.com/shfoo
+"""
+
 import torch
 import torch.nn as nn
 
-class TwoLayerNet(object):
-    def __init__(self, input_dim, n_classes, n_hidden=5):
-        self.n_hidden = n_hidden
 
-        self.W1 = 0.05 * np.random.randn(input_dim, n_hidden)
-        self.b1 = np.zeros(n_hidden)
-        self.W2 = 0.05 * np.random.randn(n_hidden, n_classes)
-        self.b2 = np.zeros(n_classes)
-
-    def one_pass(self, X, y=None, reg=0):
-        """
-        Performs one forward and backward pass
-        
-        Inputs:
-        - X: Single batch of training examples, of shape (N, D)
-        - y: Single batch of training labels, of shape (N, )
-        - reg: Regularization strength of L2 regularization
-        - dropout: Dropout parameter
-
-        Outputs:
-        - scores (if y is None): Scores for prediction
-        - (loss, grads) if y not None: Current loss and gradients
-        """
-        W1, b1 = self.W1, self.b1
-        W2, b2 = self.W2, self.b2
-        N, D = X.shape
-        C = W2.shape[1]
-
-        # Forward pass through network
-        X_hidden = np.maximum(0, np.dot(X, W1) + b1)
-        scores = np.dot(X_hidden, W2) + b2
-
-        if y is None:
-            return scores
-
-        # Compute class probabilities (softmax layer)
-        class_probs = np.exp(scores) / np.sum(np.exp(scores), axis=1).reshape(N, 1)
-        loss = np.sum(-np.log(class_probs)[range(N), y]) / N
-        # Adding L2 regularization term
-        loss += reg * np.sum(W1*W1) + reg * np.sum(W2*W2)
-
-        grads = {}
-        # Backward pass through network
-        grad_scores = class_probs
-        grad_scores[range(N), y] -= 1
-        grad_scores /= N
-
-        grads['W2'] = np.dot(X_hidden.T, grad_scores) + 2*reg*W2
-        grads['b2'] = np.sum(grad_scores, axis=0)
-
-        grad_hidden = np.dot(grad_scores, W2.T)
-        grad_hidden[X_hidden <= 0] = 0
-
-        grads['W1'] = np.dot(X.T, grad_hidden) + 2*reg*W1
-        grads['b1'] = np.sum(grad_hidden, axis=0)
-
-        return loss, grads
-
-    def fit(self, X, y, learn_rate=0.1, n_epochs=10, batch_sz=100,
-                verbose=False):
-        """
-        Inputs:
-        - X: Training set of shape (N, D)
-        - y: Training labels of shape (N, )
-        """
-        N = X.shape[0]
-
-        train_stats = {'loss': [], 'train_acc': [], 'ite': []}
-
-        for epoch in range(n_epochs):
-            for bch in range(0, N, batch_sz):
-                X_ = X[bch:bch+batch_sz, :]
-                y_ = y[bch:bch+batch_sz] 
-
-                loss, grads = self.one_pass(X=X_, y=y_)
-
-                # Update network parameters
-                self.W1 -= learn_rate*grads['W1']
-                self.b1 -= learn_rate*grads['b1']
-                self.W2 -= learn_rate*grads['W2']
-                self.b2 -= learn_rate*grads['b2']
-
-            y_pred = self.test(X=X)
-            train_acc = np.count_nonzero(y_pred==y) / N
-            train_stats['loss'].append(loss)
-            train_stats['train_acc'].append(train_acc)
-            train_stats['ite'].append(epoch)
-            if verbose:
-                print('Loss: {}, Training accuracy: {}'.format(loss, train_acc))
-
-        return train_stats
-
-    def predict(self, X):
-        """
-        Predicts class labels
-
-        Input:
-        - X: Test images of shape (N, D)
-
-        Output:
-        - y_pred: Class predictions, of shape (N, )
-        """
-        scores = self.one_pass(X)
-        class_probs = np.exp(scores) / np.sum(np.exp(scores), axis=1).reshape(X.shape[0], 1)
-        y_pred = np.argmax(class_probs, axis=1)
-
-        return y_pred
-
-
-class CNN(torch.nn.Module):
+class BaseClassifier(nn.Module):
     def __init__(self):
-        super(CNN, self).__init__()
-        # Input shape (N, 1, 28, 28)
-        self.conv1 = nn.Conv2d(in_channels=1, out_channels=5,
-                                kernel_size=5, stride=1, padding=2)
-        self.relu1 = nn.ReLU()
-        self.maxpool1 = nn.MaxPool2d(kernel_size=2)
-        # Shape: (N, 5, 14, 14)
-        self.conv2 = nn.Conv2d(in_channels=5, out_channels=15,
-                                kernel_size=5, stride=1, padding=2)
-        self.relu2 = nn.ReLU()
-        self.maxpool2 = nn.MaxPool2d(kernel_size=2)
-        # Shape: (N, 15, 7, 7)
-        self.fc1 = nn.Linear(15*7*7, 100)
-        self.relu3 = nn.ReLU()
-        self.fc2 = nn.Linear(100, 10)
+        super(BaseClassifier, self).__init__()
+        
+    def fit(self, X, y, learning_rate=0.001, num_epochs=10, batch_size=100, 
+            verbose=True, report_train_acc=True):
+        optimizer = torch.optim.Adam(self.parameters(), lr=learning_rate)
+        loss_function = nn.CrossEntropyLoss()
+        
+        iteration = 0
+        training_stats = {'ite': [], 'loss': [], 'train_acc': []}
+        
+        for epoch in range(1, num_epochs+1):
+            idx = torch.randperm(X.size()[0])
+            X, y = X[idx], y[idx]
+            
+            self.train()
+            for batch_loc in range(0, X.size()[0], batch_size):
+                X_batch = X[batch_loc: batch_loc+batch_size, :]
+                y_batch = y[batch_loc: batch_loc+batch_size]
 
-    def forward(self, X):
-        x = self.relu1(self.conv1(X))
-        x = self.maxpool1(x)
-
-        x = self.relu2(self.conv2(x))
-        x = self.maxpool2(x)
-
-        x = x.view(x.shape[0], -1)
-        x = self.fc1(x)
-        x = self.relu3(x)
-        scores = self.fc2(x)
-
-        return scores
-
-    def fit(self, X, y, learn_rate=0.001, n_epochs=10, batch_sz=100,
-                verbose=True):
-        """
-        Inputs:
-        - X: Training set of shape (N, 1, 28, 28)
-        - y: Training labels of shape (N, )
-
-        Output:
-        - Dictionary containing training history
-        """
-        N = X.size()[0]
-        X = torch.autograd.Variable(X)
-        y = torch.autograd.Variable(y)
-
-        optimizer = torch.optim.Adam(self.parameters(), lr=learn_rate)
-        loss_f = nn.CrossEntropyLoss()
-
-        train_stats = {'loss': [], 'ite': []}
-
-        for epoch in range(n_epochs):
-            for bch in range(0, N, batch_sz):
-                X_ = X[bch:bch+batch_sz, :]
-                y_ = y[bch:bch+batch_sz]
-
-                scores = self.forward(X_)
-                loss = loss_f(scores, y_)
+                scores = self.forward(X_batch)
+                loss = loss_function(scores, y_batch)
 
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
+                
+                iteration += 1
 
-            train_stats['loss'].append(loss)
-            train_stats['ite'].append(epoch)
+                if iteration % max((X.size()[0] // batch_size) // 5, 1) == 0:
+                    self.eval()
+                    
+                    training_stats['ite'].append(iteration)
+                    training_stats['loss'].append(loss.item())
+                    
+                    if report_train_acc:
+                        training_stats['train_acc'].append(((self.predict(X) == y).sum() / len(y)).item())
+                    
+                    self.train()
+                    
             if verbose:
-                print('Loss: {}'.format(loss))
+                print('Loss after epoch {}: {}'.format(epoch, loss))
+                
+        return training_stats
+    
+    def predict(self, X, MC_dropout=False, MC_iterations=100):
+        if MC_dropout:
+            for layer in self.modules():
+                if isinstance(layer, nn.Dropout):
+                    layer.train()
+                else:
+                    layer.eval()
+                    
+            with torch.no_grad():
+                class_proba = torch.stack([nn.functional.softmax(self.forward(X), dim=1) for ite in range(MC_iterations)], dim=2)
+                
+                ypred = torch.argmax(torch.mean(class_proba, dim=2), dim=1)
+                pred_variances = torch.var(class_proba, dim=2)[torch.arange(X.size()[0]), ypred]
+            
+            return ypred, pred_variances
+        else:
+            self.eval()
+            with torch.no_grad():
+                ypred = torch.argmax(self.forward(X), dim=-1)
+            
+            return ypred
 
-        return train_stats
 
+class MultiLayerPerceptron(BaseClassifier):
+    def __init__(self, input_dim=1*28*28, 
+                 num_classes=10, 
+                 num_hidden_neurons=[5], 
+                 batch_norm=False, dropout_proba=None):
+        super(MultiLayerPerceptron, self).__init__()
+        
+        self.layers = nn.ModuleList([])
+        for i in range(0, len(num_hidden_neurons)):
+            # Fully-connected layer
+            if i==0:
+                self.layers.append(nn.Linear(input_dim, num_hidden_neurons[0]))
+            else:
+                self.layers.append(nn.Linear(num_hidden_neurons[i-1], num_hidden_neurons[i]))
+            # Batch normalisation
+            if batch_norm:
+                self.layers.append(nn.BatchNorm1d(num_hidden_neurons[i]))
+            # ReLU non-linearity
+            self.layers.append(nn.ReLU())
+            # Dropout layer
+            if dropout_proba is not None:
+                self.layers.append(nn.Dropout(dropout_proba))
+        # Final fully-connected layer
+        self.layers.append(nn.Linear(num_hidden_neurons[i], num_classes))
+                
+    def forward(self, X):
+        for layer in self.layers:
+            X = layer(X)
+        scores = X
+            
+        return scores
+    
+    
+class CNN(BaseClassifier):
+    def __init__(self):
+        super(CNN, self).__init__()
+        
+        self.conv_layers1 = nn.Sequential(nn.Conv2d(in_channels=1, out_channels=5,
+                                                    kernel_size=5, stride=1, padding=2), 
+                                          nn.BatchNorm2d(5), 
+                                          nn.ReLU(), 
+                                          nn.MaxPool2d(kernel_size=2))
+        
+        self.conv_layers2 = nn.Sequential(nn.Conv2d(in_channels=5, out_channels=15,
+                                                    kernel_size=5, stride=1, padding=2),
+                                          nn.BatchNorm2d(15), 
+                                          nn.ReLU(), 
+                                          nn.MaxPool2d(kernel_size=2))
+        
+        self.fc_layers = nn.Sequential(nn.Linear(15*7*7, 100), 
+                                       #nn.BatchNorm1d(100), 
+                                       nn.ReLU(), 
+                                       nn.Linear(100, 10))
 
-class LSTM(nn.Module):
+    def forward(self, X):
+        x = self.conv_layers1(X)
+        x = self.conv_layers2(x)
+        scores = self.fc_layers(x.view(x.shape[0], -1))
+
+        return scores
+    
+    
+class LSTM(BaseClassifier):
     def __init__(self):
         super(LSTM, self).__init__()
 
-        self.rnn = nn.LSTM(
-                      input_size = 28,
-                      hidden_size = 64,
-                      num_layers = 1,
-                      batch_first = True)
+        self.rnn = nn.LSTM(input_size = 28,
+                           hidden_size = 64,
+                           num_layers = 1,
+                           batch_first = True)
 
         self.fc = nn.Linear(64, 10)
 
@@ -201,36 +157,3 @@ class LSTM(nn.Module):
         scores = self.fc(out[:, -1, :])
 
         return scores
-
-    def fit(self, X, y, learn_rate=0.01, n_epochs=1, batch_sz=100,
-                verbose=True):
-        N = X.size()[0]
-        X = torch.autograd.Variable(X)
-        y = torch.autograd.Variable(y)
-
-        optimizer = torch.optim.Adam(self.parameters(), lr=learn_rate)
-        loss_f = nn.CrossEntropyLoss()
-
-        train_stats = {'loss': [], 'ite': []}
-
-        iteration = 0
-        for epoch in range(n_epochs):
-            for bch in range(0, N, batch_sz):
-                X_ = X[bch:bch+batch_sz, :, :]
-                y_ = y[bch:bch+batch_sz]
-
-                scores = self.forward(X_)
-                loss = loss_f(scores, y_)
-
-                optimizer.zero_grad()
-                loss.backward()
-                optimizer.step()
-
-                if iteration%100 == 0:
-                    train_stats['loss'].append(loss)
-                    train_stats['ite'].append(iteration)
-                    if verbose:
-                        print('Loss: {}'.format(loss))
-                iteration += 1
-
-        return train_stats

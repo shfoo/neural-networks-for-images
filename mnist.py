@@ -1,6 +1,8 @@
-import numpy as np
 import os
+
+import numpy as np
 import pickle
+
 
 def load_data(data_dir):
     """

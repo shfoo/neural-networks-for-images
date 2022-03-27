@@ -1,96 +1,112 @@
-import numpy as np
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+@author: https://github.com/shfoo
+"""
+
 import torch
 import torch.nn as nn
+
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 
+
 class GAN(object):
-    def __init__(self, noise_dim=100):
+    def __init__(self, noise_dim=100, with_labels=False, device=torch.device('cpu')):
         self.noise_dim = noise_dim
+        self.with_labels = with_labels
+        self.device = device
 
-        self.discriminator = discriminator()
-        self.generator = generator(noise_dim=noise_dim)
-
-    def fit(self, X, learn_rate=0.001, n_epochs=5, batch_sz=100,
-                verbose=False):
-        """
-        Performs parameter updates to generator and discriminator networks
-
-        Input:
-        - X: Training images of shape (N, 1, 28, 28)
-
-        Output:
-        - Dictionary containing training history
-        """
-        N = X.shape[0]
-
-        dis_optimizer = torch.optim.Adam(self.discriminator.parameters(),
-                                         lr=learn_rate, betas=(0.5, 0.999))
-        gen_optimizer = torch.optim.Adam(self.generator.parameters(),
-                                         lr=learn_rate, betas=(0.5, 0.999))
-
-        train_stats = {'dis_loss': [], 'gen_loss': [], 'ite': []}
+        self.discriminator = Discriminator(with_labels=with_labels).to(device)
+        self.generator = Generator(noise_dim=noise_dim, with_labels=with_labels).to(device)
+        
+    def fit(self, X, y=None, learning_rate=0.001, num_epochs=10, batch_size=100,
+            verbose=False):
+        discriminator_optimizer = torch.optim.Adam(self.discriminator.parameters(),
+                                                   lr=learning_rate, betas=(0.5, 0.999))
+        generator_optimizer = torch.optim.Adam(self.generator.parameters(),
+                                               lr=learning_rate, betas=(0.5, 0.999))
+        loss_function = nn.BCEWithLogitsLoss()
+        
         iteration = 0
-        for epoch in range(n_epochs):
-            for bch in range(0, N, batch_sz):
-                X_ = X[bch:bch+batch_sz, :]
-
+        training_stats = {'ite': [], 'discriminator_loss': [], 'generator_loss': []}
+        
+        for epoch in range(1, num_epochs+1):
+            idx = torch.randperm(X.size()[0])
+            X, y = X[idx], y[idx] if self.with_labels else None
+            
+            self.generator.train()
+            self.discriminator.train()
+            for batch_loc in range(0, X.size()[0], batch_size):
+                X_batch = X[batch_loc: batch_loc+batch_size, :]
+                y_batch = y[batch_loc: batch_loc+batch_size] if self.with_labels else None
+                
                 # Update parameters of discriminator network
-                noise = (2 * torch.rand(batch_sz, self.noise_dim)) - 1
-
-                scores_real = self.discriminator(X_)
-                scores_fake = self.discriminator(self.generator(noise))
+                noise = ((2 * torch.rand(batch_size, self.noise_dim)) - 1).to(self.device)
+                
+                scores_real = self.discriminator(X_batch, y_batch if self.with_labels else None)
+                scores_fake = self.discriminator(self.generator(noise, y_batch if self.with_labels else None), 
+                                                 y_batch if self.with_labels else None)
                 # Discriminator loss and parameter updates
-                dis_loss = self.discriminator.loss(scores_real, scores_fake)
+                discriminator_loss = loss_function(scores_real, torch.ones(scores_real.shape).to(self.device)) \
+                                     + loss_function(scores_fake, torch.zeros(scores_fake.shape).to(self.device))
 
-                dis_optimizer.zero_grad()
-                dis_loss.backward()
-                dis_optimizer.step()
-
+                discriminator_optimizer.zero_grad()
+                discriminator_loss.backward()
+                discriminator_optimizer.step()
+                
                 # Update parameters of generator network
-                noise = (2 * torch.rand(batch_sz, self.noise_dim)) - 1
+                noise = ((2 * torch.rand(batch_size, self.noise_dim)) - 1).to(self.device)
 
-                scores_fake = self.discriminator(self.generator(noise))
+                scores_fake = self.discriminator(self.generator(noise, y_batch if self.with_labels else None), 
+                                                 y_batch if self.with_labels else None)
                 # Generator loss and parameter updates
-                gen_loss = self.generator.loss(scores_fake)
+                generator_loss = loss_function(scores_fake, torch.ones(scores_fake.shape).to(self.device))
 
-                gen_optimizer.zero_grad()
-                gen_loss.backward()
-                gen_optimizer.step()
-
-                if iteration%600==0:
-                    # Show images after every epoch
-                    self.display_images(self.generator(noise))
-
-                if iteration%100==0:
-                    train_stats['dis_loss'].append(dis_loss)
-                    train_stats['gen_loss'].append(gen_loss)
-                    train_stats['ite'].append(iteration)
-                    if verbose:
-                        print('Iteration {}'.format(iteration))
-                        print('Discriminator loss: {}'.format(dis_loss))
-                        print('Generator loss: {}'.format(gen_loss))
+                generator_optimizer.zero_grad()
+                generator_loss.backward()
+                generator_optimizer.step()
+                
                 iteration += 1
+                
+                if iteration % max((X.size()[0] // batch_size) // 5, 1) == 0:
+                    training_stats['discriminator_loss'].append(discriminator_loss.item())
+                    training_stats['generator_loss'].append(generator_loss.item())
+                    training_stats['ite'].append(iteration)
+                
+                # Show images after every epoch
+                if iteration % (X.size()[0] // batch_size) == 0:
+                    print('Generated images after epoch {}'.format(epoch))
+                    if self.with_labels:
+                        labels = torch.zeros((10, 10)).to(self.device)
+                        labels[range(10), range(10)] = 1
+                    self.display_images(self.generator(noise[0:10, :], 
+                                        labels if self.with_labels else None))
+                    
+            if verbose:
+                print('Iteration {}'.format(iteration))
+                print('Discriminator loss: {}'.format(discriminator_loss))
+                print('Generator loss: {}'.format(generator_loss))
+                
+        return training_stats
+    
+    def predict(self, N, y=None):
+        noise = ((2 * torch.rand(N, self.noise_dim)) - 1).to(self.device)
 
-        return train_stats
-
-    def predict(self, N=16):
-        """
-        Generate images from noise input at test time
-        """
-        noise = (2 * torch.rand(N, self.noise_dim)) - 1
-
-        return self.generator(noise)
-
+        return self.generator(noise, y if self.with_labels else None)
+    
     def display_images(self, img):
         """
         Displays generated images in a grid
         """
-        img = img.detach().numpy()
-        img = img[0:16, :].reshape(16, 28, 28)
+        try:
+            img = img.detach().numpy()
+        except:
+            img = img.cpu().detach().numpy()
+        img = img[0:10, :].reshape(10, 28, 28)
 
         plt.figure()
-        gs = gridspec.GridSpec(4, 4)
+        gs = gridspec.GridSpec(2, 5)
         for i, im in enumerate(img):
             ax = plt.subplot(gs[i])
             plt.axis('off')
@@ -99,54 +115,51 @@ class GAN(object):
             ax.set_aspect('equal')
             plt.imshow(im, cmap='gray_r')
         plt.show()
+        
+        
+class Discriminator(nn.Module):
+    def __init__(self, with_labels=False):
+        super(Discriminator, self).__init__()
+        
+        self.with_labels = with_labels
 
-
-class discriminator(nn.Module):
-    def __init__(self):
-        super(discriminator, self).__init__()
-
-        self.fc1 = nn.Linear(28*28, 256)
+        self.fc1 = nn.Linear(28*28 + (10 if with_labels else 0), 256)
         self.fc2 = nn.Linear(256, 256)
         self.fc3 = nn.Linear(256, 1)
         self.leaky_relu = nn.LeakyReLU()
 
-    def forward(self, X):
+    def forward(self, X, y=None):
         # Input X has dimensions (N, C, H, W)
-        x = self.fc1(X.view(X.shape[0], -1))
+        if self.with_labels:
+            x = self.fc1(torch.cat((X.view(X.shape[0], -1), y), dim=1))
+        else:
+            x = self.fc1(X.view(X.shape[0], -1))    
         x = self.leaky_relu(x)
         x = self.fc2(x)
         x = self.leaky_relu(x)
         x = self.fc3(x)
 
         return x
-
-    def loss(self, scores_real, scores_fake):
-        """
-        Binary cross-entropy loss is used here
-        """
-        neg_abs = -scores_real.abs()
-        loss = (scores_real.clamp(min=0) - scores_real * torch.ones(scores_real.shape) + (1 + neg_abs.exp()).log()).mean()
-
-        neg_abs = -scores_fake.abs()
-        loss += (scores_fake.clamp(min=0) - scores_fake * torch.zeros(scores_fake.shape) + (1 + neg_abs.exp()).log()).mean()
-        
-        return loss
-
-
-class generator(nn.Module):
-    def __init__(self, noise_dim=100):
-        super(generator, self).__init__()
+    
+    
+class Generator(nn.Module):
+    def __init__(self, noise_dim=100, with_labels=False):
+        super(Generator, self).__init__()
         self.noise_dim = noise_dim
+        self.with_labels = with_labels
 
-        self.fc1 = nn.Linear(noise_dim, 1024)
+        self.fc1 = nn.Linear(noise_dim + (10 if with_labels else 0), 1024)
         self.fc2 = nn.Linear(1024, 1024)
         self.fc3 = nn.Linear(1024, 28*28)
         self.relu = nn.ReLU()
         self.tanh = nn.Tanh()
 
-    def forward(self, noise):
+    def forward(self, noise, y=None):
         # Input X is noise of shape (N, noise_dim)
-        x = self.fc1(noise)
+        if self.with_labels:
+            x = self.fc1(torch.cat((noise, y), dim=1))
+        else:
+            x = self.fc1(noise)
         x = self.relu(x)
         x = self.fc2(x)
         x = self.relu(x)
@@ -154,12 +167,3 @@ class generator(nn.Module):
         x = self.tanh(x)
 
         return x.view(noise.shape[0], 1, 28, 28)
-
-    def loss(self, scores_fake):
-        """
-        Binary cross-entropy loss is used here
-        """
-        neg_abs = -scores_fake.abs()
-        loss = scores_fake.clamp(min=0) - scores_fake * torch.ones(scores_fake.shape) + (1 + neg_abs.exp()).log()
-
-        return loss.mean()
